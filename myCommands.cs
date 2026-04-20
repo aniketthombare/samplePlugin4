@@ -16,7 +16,7 @@ namespace KeepAttributesHorizontal
                 // Apply normal transformation first
                 base.TransformBy(entity, transform);
 
-                // Decide conditionally whether to keep straight
+                // 🔹 TEXT HANDLING
                 if (entity is DBText dbText)
                 {
                     if (ShouldKeepStraight(dbText))
@@ -32,32 +32,86 @@ namespace KeepAttributesHorizontal
                     if (ShouldKeepStraight(attRef))
                         attRef.Rotation = 0.0;
                 }
+
+                // 🔹 DIMENSION HANDLING (NEW)
+                else if (entity is Dimension dim)
+                {
+                    if (ShouldKeepStraight(dim))
+                        ForceDimensionHorizontal(dim);
+                }
             }
 
-            // 🔹 CONDITION LOGIC (your "AI placeholder")
+            // ============================================================
+            // 🔹 TEXT LOGIC
+            // ============================================================
             private bool ShouldKeepStraight(Entity entity)
             {
-                // Example rules — you can tweak these
-
-                // Rule 1: Check layer name
+                // Rule 1: Layer-based importance
                 if (entity.Layer.ToUpper().Contains("TITLE") ||
                     entity.Layer.ToUpper().Contains("LABEL"))
                     return true;
 
-                // Rule 2: Check text height (bigger = likely important)
+                // Rule 2: Large text
                 double height = GetTextHeight(entity);
-                if (height > 5.0)   // adjust based on your drawing scale
+                if (height > 400.0) // adjust based on your scale
                     return true;
 
-                // Rule 3: Near-horizontal already → keep it horizontal
+                // Rule 3: Already near horizontal
                 double rot = GetRotation(entity);
                 if (IsNearlyHorizontal(rot))
                     return true;
 
-                // Otherwise → let AutoCAD handle rotation
                 return false;
             }
 
+            // ============================================================
+            // 🔹 DIMENSION LOGIC
+            // ============================================================
+            private bool ShouldKeepStraight(Dimension dim)
+            {
+                // Rule 1: Important dimension layers
+                if (dim.Layer.ToUpper().Contains("DIM") ||
+                    dim.Layer.ToUpper().Contains("ANNOTATION"))
+                    return true;
+
+                // Rule 2: Large dimension text
+                if (dim.Dimtxt > 200.0)
+                    return true;
+
+                // Rule 3: Dimension already near horizontal
+                double angle = GetDimensionAngle(dim);
+                if (IsNearlyHorizontal(angle))
+                    return true;
+
+                return false;
+            }
+
+            // ============================================================
+            // 🔹 FORCE DIMENSION TEXT HORIZONTAL
+            // ============================================================
+            private void ForceDimensionHorizontal(Dimension dim)
+            {
+                try
+                {
+                    dim.UpgradeOpen();
+
+                    // Force horizontal text
+                    dim.TextRotation = 0.0;
+
+                    // Improve readability
+                    dim.Dimtix = false;
+
+                    dim.DowngradeOpen();
+                }
+                catch
+                {
+                    // Prevent AutoCAD crash
+                }
+            }
+
+            // ============================================================
+            // 🔹 HELPERS
+            // ============================================================
             private double GetTextHeight(Entity entity)
             {
                 if (entity is DBText db) return db.Height;
@@ -76,9 +130,23 @@ namespace KeepAttributesHorizontal
                 return 0.0;
             }
 
+            private double GetDimensionAngle(Dimension dim)
+            {
+                if (dim is RotatedDimension rd)
+                    return rd.Rotation;
+
+                if (dim is AlignedDimension ad)
+                {
+                    Vector3d dir = ad.XLine1Point.GetVectorTo(ad.XLine2Point);
+                    return dir.AngleOnPlane(new Plane(Point3d.Origin, Vector3d.ZAxis));
+                }
+
+                return 0.0;
+            }
+
             private bool IsNearlyHorizontal(double rotation)
             {
-                double tol = 10 * (System.Math.PI / 180.0); // 10 degrees tolerance
+                double tol = 10 * (System.Math.PI / 180.0);
 
                 return (System.Math.Abs(rotation) < tol ||
                         System.Math.Abs(rotation - System.Math.PI) < tol);
@@ -108,6 +176,9 @@ namespace KeepAttributesHorizontal
 
                 TransformOverrule.AddOverrule(
                     RXClass.GetClass(typeof(AttributeReference)), myOverRule, false);
+
+                TransformOverrule.AddOverrule(
+                    RXClass.GetClass(typeof(Dimension)), myOverRule, false);
             }
 
             TransformOverrule.Overruling = true;
@@ -116,7 +187,7 @@ namespace KeepAttributesHorizontal
         }
 
         // ============================================================
-        // ❌ DISABLE
+        //  DISABLE
         // ============================================================
         [CommandMethod("SmartKeepStraightOff")]
         public static void DisableKeepStraight()
@@ -133,6 +204,9 @@ namespace KeepAttributesHorizontal
 
                 TransformOverrule.RemoveOverrule(
                     RXClass.GetClass(typeof(AttributeReference)), myOverRule);
+
+                TransformOverrule.RemoveOverrule(
+                    RXClass.GetClass(typeof(Dimension)), myOverRule);
 
                 myOverRule = null;
             }
